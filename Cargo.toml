@@ -1,11 +1,15 @@
 [package]
 name = "rcs-to-redis"
-version = "0.1.0"
+version = "1.0.0-SNAPSHOT"
 authors = ["Bernd Vogt <bernd.vogt@sourcepit.org>"]
 
+[profile.release]
+debug = 1
+
 [dependencies]
-common_failures = "0.1.1"
-failure = "0.1.6"
-libc = "0.2.66"
-thread-priority = "0.1.1"
-caps = "0.3.4"
+common_failures = "=0.1.1"
+failure = "=0.1.6"
+libc = "=0.2.66"
+thread-priority = "=0.1.1"
+caps = "=0.3.4"
+redis = "=0.15.1"

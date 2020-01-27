@@ -1,0 +1,24 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<groupId>org.sourcepit</groupId>
+		<artifactId>srcpit-rust-parent</artifactId>
+		<version>1.0.0-SNAPSHOT</version>
+	</parent>
+
+	<artifactId>rcs-to-redis</artifactId>
+	<version>1.0.0-SNAPSHOT</version>
+	<packaging>pom</packaging>
+
+	<properties>
+		<cargo.common_failures.version>"=0.1.1"</cargo.common_failures.version>
+		<cargo.failure.version>"=0.1.6"</cargo.failure.version>
+		<cargo.libc.version>"=0.2.66"</cargo.libc.version>
+		<cargo.thread_priority.version>"=0.1.1"</cargo.thread_priority.version>
+		<cargo.caps.version>"=0.3.4"</cargo.caps.version>
+		<cargo.redis.version>"=0.15.1"</cargo.redis.version>
+	</properties>
+</project>

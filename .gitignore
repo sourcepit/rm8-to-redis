@@ -1,3 +1,10 @@
 /target
 **/*.rs.bk
 Cargo.lock
+/.env-armv7l.sh
+/.env-x86_64.sh
+/.project
+/cargo-build.sh
+/cargo-test.sh
+/cargo-verify.sh
+/.settings/

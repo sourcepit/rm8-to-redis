@@ -1,0 +1,15 @@
+[package]
+name = "${cargo.package.name}"
+version = "${cargo.package.version}"
+authors = ["Bernd Vogt <bernd.vogt@sourcepit.org>"]
+
+[profile.release]
+debug = ${cargo.profile.release.debug}
+
+[dependencies]
+common_failures = ${cargo.common_failures.version}
+failure = ${cargo.failure.version}
+libc = ${cargo.libc.version}
+thread-priority = ${cargo.thread_priority.version}
+caps = ${cargo.caps.version}
+redis = ${cargo.redis.version}

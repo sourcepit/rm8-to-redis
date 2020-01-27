@@ -11,7 +11,10 @@ use std::ptr;
 use std::slice;
 
 const GPIO_LENGTH: usize = 4096;
+#[cfg(target_arch = "arm")]
 const GPIO_OFFSET: i32 = 0x200000;
+#[cfg(target_arch = "x86_64")]
+const GPIO_OFFSET: i64 = 0x200000;
 
 #[derive(PartialEq)]
 pub enum PinDirection {

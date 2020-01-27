@@ -4,6 +4,7 @@ extern crate caps;
 #[macro_use]
 extern crate failure;
 extern crate libc;
+extern crate redis;
 extern crate thread_priority;
 
 mod gpio;
@@ -18,6 +19,7 @@ use rcs::Switch;
 use rcs::SwitchCode::SwitchB;
 use rcs::SwitchState::Off;
 use rcs::SwitchState::On;
+use redis::Commands;
 use std::thread;
 use std::time::Duration;
 use thread_priority::set_thread_priority;
@@ -50,6 +52,17 @@ fn run() -> Result<()> {
     // requires:
     // sudo setcap cap_sys_nice=ep <file>
     try_upgrade_thread_priority()?;
+
+    let client = redis::Client::open("redis://127.0.0.1/")?;
+    let mut con = client.get_connection()?;
+
+    let stream_name = "rcs";
+    
+    let result = redis::cmd("XRANGE")
+        .arg("rcs")
+        .arg("-")
+        .arg("+")
+        .query(&mut con)?;
 
     let pin = 17;
     let system_code = [true, true, true, false, false];
