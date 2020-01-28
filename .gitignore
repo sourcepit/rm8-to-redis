@@ -8,3 +8,4 @@ Cargo.lock
 /cargo-test.sh
 /cargo-verify.sh
 /.settings/
+/.vscode/
