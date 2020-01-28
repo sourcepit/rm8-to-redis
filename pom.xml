@@ -14,6 +14,7 @@
 	<packaging>pom</packaging>
 
 	<properties>
+		<cargo.clap.version>"=2.33.0"</cargo.clap.version>
 		<cargo.common_failures.version>"=0.1.1"</cargo.common_failures.version>
 		<cargo.failure.version>"=0.1.6"</cargo.failure.version>
 		<cargo.libc.version>"=0.2.66"</cargo.libc.version>

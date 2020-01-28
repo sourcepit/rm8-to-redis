@@ -7,6 +7,7 @@ authors = ["Bernd Vogt <bernd.vogt@sourcepit.org>"]
 debug = ${cargo.profile.release.debug}
 
 [dependencies]
+clap = ${cargo.clap.version}
 common_failures = ${cargo.common_failures.version}
 failure = ${cargo.failure.version}
 libc = ${cargo.libc.version}

@@ -7,6 +7,7 @@ authors = ["Bernd Vogt <bernd.vogt@sourcepit.org>"]
 debug = 1
 
 [dependencies]
+clap = "=2.33.0"
 common_failures = "=0.1.1"
 failure = "=0.1.6"
 libc = "=0.2.66"
