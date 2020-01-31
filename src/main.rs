@@ -23,20 +23,22 @@ use clap::App;
 use clap::Arg;
 use rcs::RemoteControl;
 use rcs::Switch;
+use rcs::SwitchCode::SwitchA;
 use rcs::SwitchCode::SwitchB;
+use rcs::SwitchCode::SwitchC;
+use rcs::SwitchCode::SwitchD;
+use rcs::SwitchCode::SwitchE;
+use rcs::SwitchState;
 use rcs::SwitchState::Off;
 use rcs::SwitchState::On;
 use redis::Commands;
+use redis::Connection;
 use redis::Value;
 use redis_streams::as_bulk;
-use redis_streams::as_status;
 use redis_streams::as_stream_entry;
-use redis_streams::as_string;
 use redis_streams::is_nil;
 use redis_streams::EntryId;
 use std::collections::HashMap;
-use std::thread;
-use std::time::Duration;
 use thread_priority::set_thread_priority;
 use thread_priority::thread_native_id;
 use thread_priority::RealtimeThreadSchedulePolicy;
@@ -66,6 +68,125 @@ fn try_upgrade_thread_priority() -> Result<()> {
         }
     };
     Ok(())
+}
+
+fn map(_: EntryId, values: HashMap<String, String>) -> Result<Option<(Switch, SwitchState)>> {
+    let system_code = match values.get("system_code") {
+        Some(system_code) => {
+            match system_code.len() {
+                5 => (),
+                _ => return Ok(None), //TODO: log warning
+            };
+
+            let mut result = [false; 5];
+            for (i, c) in system_code.chars().enumerate() {
+                result[i] = match c {
+                    '0' => false,
+                    '1' => true,
+                    _ => return Ok(None), //TODO: log warning
+                };
+            }
+            result
+        }
+        None => return Ok(None), //TODO: log warning
+    };
+
+    let switch = match values.get("switch") {
+        Some(switch) => match switch.as_str() {
+            "A" => SwitchA,
+            "B" => SwitchB,
+            "C" => SwitchC,
+            "D" => SwitchD,
+            "E" => SwitchE,
+            _ => return Ok(None), //TODO: log warning
+        },
+        None => return Ok(None), //TODO: log warning
+    };
+
+    let state = match values.get("state") {
+        Some(state) => {
+            match state.as_str() {
+                "On" => On,
+                "Off" => Off,
+                _ => return Ok(None), //TODO: log warning
+            }
+        }
+        None => return Ok(None), //TODO: log warning
+    };
+
+    Ok(Some((Switch::new(&system_code, switch), state)))
+}
+
+fn reduce(items: Vec<(Switch, SwitchState)>) -> Result<HashMap<Switch, SwitchState>> {
+    let mut result: HashMap<Switch, SwitchState> = HashMap::new();
+    for item in items {
+        result.insert(item.0, item.1);
+    }
+    Ok(result)
+}
+
+fn process_stream<M, R, C, MappedItem, ReducedItem>(
+    stream_name: String,
+    mut connection: Connection,
+    map: M,
+    reduce: R,
+    mut commit: C,
+) -> Result<()>
+where
+    M: (Fn(EntryId, HashMap<String, String>) -> Result<Option<MappedItem>>),
+    R: (Fn(Vec<MappedItem>) -> Result<ReducedItem>),
+    C: (FnMut(ReducedItem) -> Result<()>),
+{
+    let start_key = format!("{}_start", stream_name);
+
+    let mut start = match connection.get::<&String, Option<String>>(&start_key)? {
+        Some(start) => EntryId::from_str(start)?,
+        None => EntryId::new(0, 0),
+    };
+    loop {
+        println!("{}", start);
+
+        let streams: Value = redis::cmd("XREAD")
+            .arg("BLOCK")
+            .arg("5000")
+            .arg("STREAMS")
+            .arg(&stream_name)
+            .arg(start.to_string())
+            .query(&mut connection)?;
+
+        // nil == timeout
+        if !is_nil(&streams) {
+            let mut streams = as_bulk(streams)?;
+            assert(
+                || streams.len() == 1,
+                format!("We query only for one stream, but got: {:?}", streams),
+            )?;
+
+            // extract rcs stream
+            let mut stream_name_to_entries = as_bulk(streams.remove(0))?;
+            // extract rcs stream entries. 0 == name, 1 == entries
+            let stream_entries = as_bulk(stream_name_to_entries.remove(1))?;
+
+            let mut items = Vec::new();
+
+            for stream_entry in stream_entries {
+                let stream_entry = as_stream_entry(stream_entry)?;
+                let entry_id = stream_entry.0;
+                let entry_values = stream_entry.1;
+                println!("{}: {:?}", entry_id, entry_values);
+
+                if let Some(item) = map(entry_id.clone(), entry_values)? {
+                    items.push(item);
+                }
+
+                start = entry_id.next();
+            }
+
+            commit(reduce(items)?)?;
+
+            connection.set(&start_key, start.to_string())?;
+        }
+    }
 }
 
 fn run() -> Result<()> {
@@ -115,64 +236,20 @@ fn run() -> Result<()> {
     // sudo setcap cap_sys_nice=ep <file>
     try_upgrade_thread_priority()?;
 
-    let mut redis_connection =
+    let redis_connection =
         redis::Client::open(format!("redis://{}:{}", redis_host, redis_port))?.get_connection()?;
-
-    let stream_name = name.clone();
-    let start_key = format!("{}_start", name);
-
-    let mut start = match redis_connection.get::<&String, Option<String>>(&start_key)? {
-        Some(start) => EntryId::from_str(start)?,
-        None => EntryId::new(0, 0),
-    };
-
-    loop {
-        println!("{}", start);
-
-        let streams: Value = redis::cmd("XREAD")
-            .arg("BLOCK")
-            .arg("5000")
-            .arg("STREAMS")
-            .arg(&stream_name)
-            .arg(start.to_string())
-            .query(&mut redis_connection)?;
-
-        // nil == timeout
-        if !is_nil(&streams) {
-            let mut streams = as_bulk(streams)?;
-            assert(
-                || streams.len() == 1,
-                format!("We query only for one stream, but got: {:?}", streams),
-            )?;
-
-            // extract rcs stream
-            let mut stream_name_to_entries = as_bulk(streams.remove(0))?;
-            // extract rcs stream entries. 0 == name, 1 == entries
-            let stream_entries = as_bulk(stream_name_to_entries.remove(1))?;
-
-            for stream_entry in stream_entries {
-                let stream_entry = as_stream_entry(stream_entry)?;
-                let entry_id = stream_entry.0;
-                let entry_values = stream_entry.1;
-                println!("{}: {:?}", entry_id, entry_values);
-                start = entry_id.next();
-            }
-
-            redis_connection.set(&start_key, start.to_string())?;
-        }
-    }
-
-    let system_code = [true, true, true, false, false];
-
-    let switch_b = Switch::new(&system_code, SwitchB);
 
     let mut rc = RemoteControl::open(gpio_pin)?;
 
-    rc.send(&switch_b, On);
-    thread::sleep(Duration::from_secs(2));
+    let commit = |state: HashMap<Switch, SwitchState>| -> Result<()> {
+        println!("{:?}", state);
+        for (switch, state) in state {
+            rc.send(&switch, state);
+        }
+        Ok(())
+    };
 
-    rc.send(&switch_b, Off);
-    thread::sleep(Duration::from_secs(2));
+    process_stream(name, redis_connection, map, reduce, commit)?;
 
     Ok(())
 }
