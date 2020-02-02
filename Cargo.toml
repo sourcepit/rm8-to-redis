@@ -16,3 +16,5 @@ caps = "=0.3.4"
 redis = "=0.15.1"
 serde = { version = "=1.0.104", features = ["derive"] }
 serde_json = "=1.0.45"
+log = "=0.4.8"
+stderrlog = "=0.4.3"

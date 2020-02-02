@@ -23,5 +23,7 @@
 		<cargo.redis.version>"=0.15.1"</cargo.redis.version>
 		<cargo.serde.version>"=1.0.104"</cargo.serde.version>
 		<cargo.serde_json.version>"=1.0.45"</cargo.serde_json.version>
+		<cargo.log.version>"=0.4.8"</cargo.log.version>
+		<cargo.stderrlog.version>"=0.4.3"</cargo.stderrlog.version>
 	</properties>
 </project>

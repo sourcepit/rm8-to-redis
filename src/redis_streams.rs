@@ -122,8 +122,10 @@ where
     let mut initialized = false;
 
     loop {
-        println!("{:?}", start);
-
+        debug!(
+            "Reading stream {} starting with entry {}",
+            stream_name, start
+        );
         let stream_entries = if initialized {
             read_stream(&mut connection, &stream_name, &start, Some(5000))?
         } else {

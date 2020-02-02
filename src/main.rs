@@ -10,6 +10,8 @@ extern crate redis;
 extern crate serde;
 extern crate serde_json;
 extern crate thread_priority;
+#[macro_use]
+extern crate log;
 
 mod assert;
 mod gpio;
@@ -49,6 +51,8 @@ const ARG_REDIS_HOST: &str = "redis-host";
 const ARG_REDIS_PORT: &str = "redis-port";
 const ARG_NAME: &str = "name";
 const ARG_GPIO_PIN: &str = "gpio-pin";
+const ARG_VERBOSITY: &str = "verbosity";
+const ARG_QUIET: &str = "quiet";
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 struct SwitchStates {
@@ -81,6 +85,22 @@ fn run() -> Result<()> {
     let args = App::new(crate_name!())
         .version(crate_version!())
         .author(crate_authors!())
+        .arg(
+            Arg::with_name(ARG_VERBOSITY)
+                .long(ARG_VERBOSITY)
+                .short("v")
+                .multiple(true)
+                .takes_value(false)
+                .required(false),
+        )
+        .arg(
+            Arg::with_name(ARG_QUIET)
+                .long(ARG_QUIET)
+                .short("q")
+                .multiple(false)
+                .takes_value(false)
+                .required(false),
+        )
         .arg(
             Arg::with_name(ARG_REDIS_HOST)
                 .long(ARG_REDIS_HOST)
@@ -115,6 +135,16 @@ fn run() -> Result<()> {
         )
         .get_matches();
 
+    let verbosity = args.occurrences_of(ARG_VERBOSITY) as usize + 1;
+    let quiet = args.is_present(ARG_QUIET);
+
+    stderrlog::new()
+        .module(module_path!())
+        .timestamp(stderrlog::Timestamp::Second)
+        .verbosity(verbosity)
+        .quiet(quiet)
+        .init()?;
+
     let redis_host = value_t!(args, ARG_REDIS_HOST, String)?;
     let redis_port = value_t!(args, ARG_REDIS_PORT, usize)?;
     let name = value_t!(args, ARG_NAME, String)?;
@@ -135,29 +165,25 @@ fn run() -> Result<()> {
         None => SwitchStates::new(),
     };
 
-    println!("{:?}", switch_states);
-
     let mut rc = RemoteControl::open(gpio_pin)?;
 
     let commit = |connection: &mut Connection,
                   initialized: bool,
                   state: HashMap<Switch, SwitchState>|
      -> Result<()> {
-        println!("{:?} {:?}", state, initialized);
-
         if initialized {
             for (switch, state) in state {
+                info!("Set {:?} {:?}", switch, state);
                 rc.send(&switch, state);
                 switch_states.set_state(&switch, state);
-                println!("set {:?} {:?}", switch, state);
             }
         } else {
             for (switch, state) in state {
                 switch_states.set_state(&switch, state);
             }
             for (switch, state) in switch_states.iter() {
+                info!("Set {:?} {:?}", switch, state);
                 rc.send(switch, *state);
-                println!("init {:?} {:?}", switch, state);
             }
         }
 
