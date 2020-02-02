@@ -169,8 +169,9 @@ fn as_bulk(value: Value) -> Result<Vec<Value>> {
     }
 }
 
-fn as_status(value: Value) -> Result<String> {
+fn as_entry_id(value: Value) -> Result<String> {
     match value {
+        Value::Data(value) => Ok(String::from_utf8(value)?),
         Value::Status(value) => Ok(value),
         _ => Err(format_err!(
             "Expected redis status value but got {:?}.",
@@ -196,7 +197,7 @@ fn as_stream_entry(value: Value) -> Result<(EntryId, HashMap<String, String>)> {
         format!("Invalid redis stream entry: {:?}", stream_entry),
     )?;
 
-    let entry_id = EntryId::from_str(as_status(stream_entry.remove(0))?)?;
+    let entry_id = EntryId::from_str(as_entry_id(stream_entry.remove(0))?)?;
 
     let mut entry_items = as_bulk(stream_entry.remove(0))?;
     assert(
