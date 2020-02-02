@@ -78,7 +78,7 @@ impl<'a> Gpio<'a> {
         }
     }
 
-    pub fn get_pin_value(&self, pin: usize) -> PinValue {
+    pub fn _get_pin_value(&self, pin: usize) -> PinValue {
         match self.mem[13] & 1 << pin > 0 {
             true => PinValue::High,
             false => PinValue::Low,
