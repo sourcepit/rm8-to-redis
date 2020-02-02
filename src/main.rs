@@ -50,81 +50,6 @@ const ARG_REDIS_PORT: &str = "redis-port";
 const ARG_NAME: &str = "name";
 const ARG_GPIO_PIN: &str = "gpio-pin";
 
-fn try_upgrade_thread_priority() -> Result<()> {
-    let has_cap_sys_nice = match caps::has_cap(None, CapSet::Permitted, Capability::CAP_SYS_NICE) {
-        Ok(v) => v,
-        Err(e) => return Err(format_err!("{}", e)),
-    };
-    if has_cap_sys_nice {
-        let thread_id = thread_native_id();
-        let res = set_thread_priority(
-            thread_id,
-            ThreadPriority::Max,
-            ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::Fifo),
-        );
-        match res {
-            Ok(_) => {}
-            Err(e) => return Err(format_err!("{:?}", e)),
-        }
-    };
-    Ok(())
-}
-
-fn map(_: EntryId, values: HashMap<String, String>) -> Result<Option<(Switch, SwitchState)>> {
-    let system_code = match values.get("system_code") {
-        Some(system_code) => {
-            match system_code.len() {
-                5 => (),
-                _ => return Ok(None), //TODO: log warning
-            };
-
-            let mut result = [false; 5];
-            for (i, c) in system_code.chars().enumerate() {
-                result[i] = match c {
-                    '0' => false,
-                    '1' => true,
-                    _ => return Ok(None), //TODO: log warning
-                };
-            }
-            result
-        }
-        None => return Ok(None), //TODO: log warning
-    };
-
-    let switch = match values.get("switch") {
-        Some(switch) => match switch.as_str() {
-            "A" => SwitchA,
-            "B" => SwitchB,
-            "C" => SwitchC,
-            "D" => SwitchD,
-            "E" => SwitchE,
-            _ => return Ok(None), //TODO: log warning
-        },
-        None => return Ok(None), //TODO: log warning
-    };
-
-    let state = match values.get("state") {
-        Some(state) => {
-            match state.as_str() {
-                "On" => On,
-                "Off" => Off,
-                _ => return Ok(None), //TODO: log warning
-            }
-        }
-        None => return Ok(None), //TODO: log warning
-    };
-
-    Ok(Some((Switch::new(&system_code, switch), state)))
-}
-
-fn reduce(items: Vec<(Switch, SwitchState)>) -> Result<HashMap<Switch, SwitchState>> {
-    let mut result: HashMap<Switch, SwitchState> = HashMap::new();
-    for item in items {
-        result.insert(item.0, item.1);
-    }
-    Ok(result)
-}
-
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 struct SwitchStates {
     states: Vec<(Switch, SwitchState)>,
@@ -149,6 +74,8 @@ impl SwitchStates {
         self.states.iter()
     }
 }
+
+quick_main!(run);
 
 fn run() -> Result<()> {
     let args = App::new(crate_name!())
@@ -245,4 +172,77 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-quick_main!(run);
+fn try_upgrade_thread_priority() -> Result<()> {
+    let has_cap_sys_nice = match caps::has_cap(None, CapSet::Permitted, Capability::CAP_SYS_NICE) {
+        Ok(v) => v,
+        Err(e) => return Err(format_err!("{}", e)),
+    };
+    if has_cap_sys_nice {
+        let thread_id = thread_native_id();
+        let res = set_thread_priority(
+            thread_id,
+            ThreadPriority::Max,
+            ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::Fifo),
+        );
+        match res {
+            Ok(_) => {}
+            Err(e) => return Err(format_err!("{:?}", e)),
+        }
+    };
+    Ok(())
+}
+
+fn map(_: EntryId, values: HashMap<String, String>) -> Result<Option<(Switch, SwitchState)>> {
+    let system_code = match values.get("system_code") {
+        Some(system_code) => {
+            match system_code.len() {
+                5 => (),
+                _ => return Ok(None), //TODO: log warning
+            };
+
+            let mut result = [false; 5];
+            for (i, c) in system_code.chars().enumerate() {
+                result[i] = match c {
+                    '0' => false,
+                    '1' => true,
+                    _ => return Ok(None), //TODO: log warning
+                };
+            }
+            result
+        }
+        None => return Ok(None), //TODO: log warning
+    };
+
+    let switch = match values.get("switch") {
+        Some(switch) => match switch.as_str() {
+            "A" => SwitchA,
+            "B" => SwitchB,
+            "C" => SwitchC,
+            "D" => SwitchD,
+            "E" => SwitchE,
+            _ => return Ok(None), //TODO: log warning
+        },
+        None => return Ok(None), //TODO: log warning
+    };
+
+    let state = match values.get("state") {
+        Some(state) => {
+            match state.as_str() {
+                "On" => On,
+                "Off" => Off,
+                _ => return Ok(None), //TODO: log warning
+            }
+        }
+        None => return Ok(None), //TODO: log warning
+    };
+
+    Ok(Some((Switch::new(&system_code, switch), state)))
+}
+
+fn reduce(items: Vec<(Switch, SwitchState)>) -> Result<HashMap<Switch, SwitchState>> {
+    let mut result: HashMap<Switch, SwitchState> = HashMap::new();
+    for item in items {
+        result.insert(item.0, item.1);
+    }
+    Ok(result)
+}
