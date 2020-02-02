@@ -16,7 +16,6 @@ mod redis_streams;
 
 use common_failures::prelude::*;
 
-use assert::assert;
 use caps::CapSet;
 use caps::Capability;
 use clap::App;
@@ -33,10 +32,7 @@ use rcs::SwitchState::Off;
 use rcs::SwitchState::On;
 use redis::Commands;
 use redis::Connection;
-use redis::Value;
-use redis_streams::as_bulk;
-use redis_streams::as_stream_entry;
-use redis_streams::is_nil;
+use redis_streams::read_stream;
 use redis_streams::EntryId;
 use std::collections::HashMap;
 use thread_priority::set_thread_priority;
@@ -146,46 +142,24 @@ where
     loop {
         println!("{}", start);
 
-        let streams: Value = redis::cmd("XREAD")
-            .arg("BLOCK")
-            .arg("5000")
-            .arg("STREAMS")
-            .arg(&stream_name)
-            .arg(start.to_string())
-            .query(&mut connection)?;
+        let stream_entries = read_stream(&mut connection, &stream_name, &start, Some(5000))?;
 
-        // nil == timeout
-        if !is_nil(&streams) {
-            let mut streams = as_bulk(streams)?;
-            assert(
-                || streams.len() == 1,
-                format!("We query only for one stream, but got: {:?}", streams),
-            )?;
+        let mut items = Vec::new();
+        for stream_entry in stream_entries {
+            let entry_id = stream_entry.0;
+            let entry_values = stream_entry.1;
+            println!("{}: {:?}", entry_id, entry_values);
 
-            // extract rcs stream
-            let mut stream_name_to_entries = as_bulk(streams.remove(0))?;
-            // extract rcs stream entries. 0 == name, 1 == entries
-            let stream_entries = as_bulk(stream_name_to_entries.remove(1))?;
-
-            let mut items = Vec::new();
-
-            for stream_entry in stream_entries {
-                let stream_entry = as_stream_entry(stream_entry)?;
-                let entry_id = stream_entry.0;
-                let entry_values = stream_entry.1;
-                println!("{}: {:?}", entry_id, entry_values);
-
-                if let Some(item) = map(entry_id.clone(), entry_values)? {
-                    items.push(item);
-                }
-
-                start = entry_id.next();
+            if let Some(item) = map(entry_id.clone(), entry_values)? {
+                items.push(item);
             }
 
-            commit(reduce(items)?)?;
-
-            connection.set(&start_key, start.to_string())?;
+            start = entry_id.next();
         }
+
+        commit(reduce(items)?)?;
+
+        connection.set(&start_key, start.to_string())?;
     }
 }
 

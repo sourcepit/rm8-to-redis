@@ -1,6 +1,7 @@
 use common_failures::prelude::*;
 
 use assert::assert;
+use redis::Connection;
 use redis::Value;
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -52,14 +53,58 @@ impl Display for EntryId {
     }
 }
 
-pub fn is_nil(value: &Value) -> bool {
+pub fn read_stream<S>(
+    connection: &mut Connection,
+    stream_name: S,
+    start_entry: &EntryId,
+    block: Option<usize>,
+) -> Result<Vec<(EntryId, HashMap<String, String>)>>
+where
+    S: Into<String>,
+{
+    let mut cmd = redis::cmd("XREAD");
+
+    if let Some(block) = block {
+        cmd.arg("BLOCK").arg(block.to_string());
+    }
+
+    cmd.arg("STREAMS")
+        .arg(stream_name.into())
+        .arg(start_entry.to_string());
+
+    let streams = cmd.query(connection)?;
+    let mut result = Vec::new();
+
+    // nil == timeout
+    if !is_nil(&streams) {
+        let mut streams = as_bulk(streams)?;
+        assert(
+            || streams.len() == 1,
+            format!("We query only for one stream, but got: {:?}", streams),
+        )?;
+
+        // extract rcs stream
+        let mut stream_name_to_entries = as_bulk(streams.remove(0))?;
+        // extract rcs stream entries. 0 == name, 1 == entries
+        let stream_entries = as_bulk(stream_name_to_entries.remove(1))?;
+
+        for stream_entry in stream_entries {
+            let stream_entry = as_stream_entry(stream_entry)?;
+            result.push(stream_entry);
+        }
+    }
+
+    Ok(result)
+}
+
+fn is_nil(value: &Value) -> bool {
     match value {
         Value::Nil => true,
         _ => false,
     }
 }
 
-pub fn as_bulk(value: Value) -> Result<Vec<Value>> {
+fn as_bulk(value: Value) -> Result<Vec<Value>> {
     match value {
         Value::Bulk(value) => Ok(value),
         _ => Err(format_err!(
@@ -69,7 +114,7 @@ pub fn as_bulk(value: Value) -> Result<Vec<Value>> {
     }
 }
 
-pub fn as_status(value: Value) -> Result<String> {
+fn as_status(value: Value) -> Result<String> {
     match value {
         Value::Status(value) => Ok(value),
         _ => Err(format_err!(
@@ -79,7 +124,7 @@ pub fn as_status(value: Value) -> Result<String> {
     }
 }
 
-pub fn as_string(value: Value) -> Result<String> {
+fn as_string(value: Value) -> Result<String> {
     match value {
         Value::Data(value) => Ok(String::from_utf8(value)?),
         _ => Err(format_err!(
@@ -89,7 +134,7 @@ pub fn as_string(value: Value) -> Result<String> {
     }
 }
 
-pub fn as_stream_entry(value: Value) -> Result<(EntryId, HashMap<String, String>)> {
+fn as_stream_entry(value: Value) -> Result<(EntryId, HashMap<String, String>)> {
     let mut stream_entry = as_bulk(value)?;
     assert(
         || stream_entry.len() == 2,
