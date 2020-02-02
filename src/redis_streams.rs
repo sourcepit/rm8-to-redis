@@ -1,6 +1,7 @@
 use common_failures::prelude::*;
 
 use assert::assert;
+use redis::Commands;
 use redis::Connection;
 use redis::Value;
 use serde::Deserialize;
@@ -97,6 +98,56 @@ where
     }
 
     Ok(result)
+}
+
+pub fn process_stream<M, R, C, MappedItem, ReducedItem>(
+    stream_name: String,
+    mut connection: Connection,
+    map: M,
+    reduce: R,
+    mut commit: C,
+) -> Result<()>
+where
+    M: (Fn(EntryId, HashMap<String, String>) -> Result<Option<MappedItem>>),
+    R: (Fn(Vec<MappedItem>) -> Result<ReducedItem>),
+    C: (FnMut(&mut Connection, bool, ReducedItem) -> Result<()>),
+{
+    let start_key = format!("{}_start", stream_name);
+
+    let mut start = match connection.get::<&String, Option<String>>(&start_key)? {
+        Some(start) => EntryId::from_str(start)?,
+        None => EntryId::new(0, 0),
+    };
+
+    let mut initialized = false;
+
+    loop {
+        println!("{:?}", start);
+
+        let stream_entries = if initialized {
+            read_stream(&mut connection, &stream_name, &start, Some(5000))?
+        } else {
+            read_stream(&mut connection, &stream_name, &start, None)?
+        };
+
+        let mut items = Vec::new();
+        for stream_entry in stream_entries {
+            let entry_id = stream_entry.0;
+            let entry_values = stream_entry.1;
+
+            if let Some(item) = map(entry_id.clone(), entry_values)? {
+                items.push(item);
+            }
+
+            start = entry_id.next();
+        }
+
+        commit(&mut connection, initialized, reduce(items)?)?;
+
+        connection.set(&start_key, start.to_string())?;
+
+        initialized = true;
+    }
 }
 
 fn is_nil(value: &Value) -> bool {
