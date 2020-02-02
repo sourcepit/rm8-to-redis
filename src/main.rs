@@ -7,6 +7,8 @@ extern crate caps;
 extern crate failure;
 extern crate libc;
 extern crate redis;
+extern crate serde;
+extern crate serde_json;
 extern crate thread_priority;
 
 mod assert;
@@ -34,6 +36,8 @@ use redis::Commands;
 use redis::Connection;
 use redis_streams::read_stream;
 use redis_streams::EntryId;
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashMap;
 use thread_priority::set_thread_priority;
 use thread_priority::thread_native_id;
@@ -131,7 +135,7 @@ fn process_stream<M, R, C, MappedItem, ReducedItem>(
 where
     M: (Fn(EntryId, HashMap<String, String>) -> Result<Option<MappedItem>>),
     R: (Fn(Vec<MappedItem>) -> Result<ReducedItem>),
-    C: (FnMut(ReducedItem) -> Result<()>),
+    C: (FnMut(&mut Connection, bool, ReducedItem) -> Result<()>),
 {
     let start_key = format!("{}_start", stream_name);
 
@@ -139,16 +143,22 @@ where
         Some(start) => EntryId::from_str(start)?,
         None => EntryId::new(0, 0),
     };
-    loop {
-        println!("{}", start);
 
-        let stream_entries = read_stream(&mut connection, &stream_name, &start, Some(5000))?;
+    let mut initialized = false;
+
+    loop {
+        println!("{:?}", start);
+
+        let stream_entries = if initialized {
+            read_stream(&mut connection, &stream_name, &start, Some(5000))?
+        } else {
+            read_stream(&mut connection, &stream_name, &start, None)?
+        };
 
         let mut items = Vec::new();
         for stream_entry in stream_entries {
             let entry_id = stream_entry.0;
             let entry_values = stream_entry.1;
-            println!("{}: {:?}", entry_id, entry_values);
 
             if let Some(item) = map(entry_id.clone(), entry_values)? {
                 items.push(item);
@@ -157,9 +167,36 @@ where
             start = entry_id.next();
         }
 
-        commit(reduce(items)?)?;
+        commit(&mut connection, initialized, reduce(items)?)?;
 
         connection.set(&start_key, start.to_string())?;
+
+        initialized = true;
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+struct SwitchStates {
+    states: Vec<(Switch, SwitchState)>,
+}
+
+impl SwitchStates {
+    pub fn new() -> SwitchStates {
+        SwitchStates { states: Vec::new() }
+    }
+
+    pub fn set_state(&mut self, switch: &Switch, state: SwitchState) {
+        for i in &mut self.states {
+            if i.0 == *switch {
+                i.1 = state;
+                break;
+            }
+        }
+        self.states.push((switch.clone(), state));
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<(rcs::Switch, rcs::SwitchState)> {
+        self.states.iter()
     }
 }
 
@@ -210,16 +247,46 @@ fn run() -> Result<()> {
     // sudo setcap cap_sys_nice=ep <file>
     try_upgrade_thread_priority()?;
 
-    let redis_connection =
+    let mut redis_connection =
         redis::Client::open(format!("redis://{}:{}", redis_host, redis_port))?.get_connection()?;
+
+    let state_key = format!("{}_state", name);
+
+    let result: Option<Vec<u8>> = redis_connection.get(&state_key)?;
+    let mut switch_states: SwitchStates = match result {
+        Some(result) => serde_json::from_slice(result.as_slice())?,
+        None => SwitchStates::new(),
+    };
+
+    println!("{:?}", switch_states);
 
     let mut rc = RemoteControl::open(gpio_pin)?;
 
-    let commit = |state: HashMap<Switch, SwitchState>| -> Result<()> {
-        println!("{:?}", state);
-        for (switch, state) in state {
-            rc.send(&switch, state);
+    let commit = |connection: &mut Connection,
+                  initialized: bool,
+                  state: HashMap<Switch, SwitchState>|
+     -> Result<()> {
+        println!("{:?} {:?}", state, initialized);
+
+        if initialized {
+            for (switch, state) in state {
+                rc.send(&switch, state);
+                switch_states.set_state(&switch, state);
+                println!("set {:?} {:?}", switch, state);
+            }
+        } else {
+            for (switch, state) in state {
+                switch_states.set_state(&switch, state);
+            }
+            for (switch, state) in switch_states.iter() {
+                rc.send(switch, *state);
+                println!("init {:?} {:?}", switch, state);
+            }
         }
+
+        let json = serde_json::to_vec(&switch_states)?;
+        connection.set(&state_key, json)?;
+
         Ok(())
     };
 

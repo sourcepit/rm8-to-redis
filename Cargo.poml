@@ -14,3 +14,5 @@ libc = ${cargo.libc.version}
 thread-priority = ${cargo.thread_priority.version}
 caps = ${cargo.caps.version}
 redis = ${cargo.redis.version}
+serde = { version = ${cargo.serde.version}, features = ["derive"] }
+serde_json = ${cargo.serde_json.version}

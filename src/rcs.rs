@@ -4,12 +4,14 @@ use gpio::Gpio;
 use gpio::PinDirection::Out;
 use gpio::PinValue::High;
 use gpio::PinValue::Low;
+use serde::Deserialize;
+use serde::Serialize;
 use std::thread;
 use std::time::Duration;
 
 const PULSE_LENGTH: usize = 300;
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Switch {
     system_code: [bool; 5],
     switch_code: SwitchCode,
@@ -25,7 +27,7 @@ impl Switch {
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum SwitchCode {
     SwitchA,
     SwitchB,
@@ -53,7 +55,7 @@ impl SwitchCode {
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum SwitchState {
     On,
     Off,

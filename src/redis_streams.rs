@@ -3,12 +3,14 @@ use common_failures::prelude::*;
 use assert::assert;
 use redis::Connection;
 use redis::Value;
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FmtResult;
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EntryId {
     time: u64,
     sequence_number: u32,
