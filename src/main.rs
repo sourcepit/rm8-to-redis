@@ -15,8 +15,8 @@ extern crate log;
 
 mod assert;
 mod gpio;
-mod rm8;
 mod redis_streams;
+mod rm8;
 
 use common_failures::prelude::*;
 
@@ -24,20 +24,23 @@ use caps::CapSet;
 use caps::Capability;
 use clap::App;
 use clap::Arg;
-use rm8::RemoteControl;
-use rm8::Switch;
-use rm8::SwitchCode::SwitchA;
-use rm8::SwitchCode::SwitchB;
-use rm8::SwitchCode::SwitchC;
-use rm8::SwitchCode::SwitchD;
-use rm8::SwitchCode::SwitchE;
-use rm8::SwitchState;
-use rm8::SwitchState::Off;
-use rm8::SwitchState::On;
 use redis::Commands;
 use redis::Connection;
 use redis_streams::process_stream;
 use redis_streams::EntryId;
+use rm8::RemoteControl;
+use rm8::Switch;
+use rm8::SwitchCode::Relay1;
+use rm8::SwitchCode::Relay2;
+use rm8::SwitchCode::Relay3;
+use rm8::SwitchCode::Relay4;
+use rm8::SwitchCode::Relay5;
+use rm8::SwitchCode::Relay6;
+use rm8::SwitchCode::Relay7;
+use rm8::SwitchCode::Relay8;
+use rm8::SwitchState;
+use rm8::SwitchState::Off;
+use rm8::SwitchState::On;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -252,11 +255,14 @@ fn map(_: EntryId, values: HashMap<String, String>) -> Result<Option<(Switch, Sw
 
     let switch = match values.get("switch") {
         Some(switch) => match switch.as_str() {
-            "A" => SwitchA,
-            "B" => SwitchB,
-            "C" => SwitchC,
-            "D" => SwitchD,
-            "E" => SwitchE,
+            "1" => Relay1,
+            "2" => Relay2,
+            "3" => Relay3,
+            "4" => Relay4,
+            "5" => Relay5,
+            "6" => Relay6,
+            "7" => Relay7,
+            "8" => Relay8,
             _ => return Ok(None), //TODO: log warning
         },
         None => return Ok(None), //TODO: log warning
@@ -298,7 +304,7 @@ mod tests {
 
         // test insert state of switch 1A
         let sys_code = [true, false, false, false, false];
-        let switch_code = SwitchCode::SwitchA;
+        let switch_code = SwitchCode::Relay1;
         let switch = Switch::new(&sys_code, switch_code);
 
         state.set_state(&switch, SwitchState::On);
@@ -307,7 +313,7 @@ mod tests {
 
         // test change state of switch 1A
         let sys_code = [true, false, false, false, false];
-        let switch_code = SwitchCode::SwitchA;
+        let switch_code = SwitchCode::Relay1;
         let switch = Switch::new(&sys_code, switch_code);
 
         state.set_state(&switch, SwitchState::Off);
@@ -316,7 +322,7 @@ mod tests {
 
         // test insert state of another switch
         let sys_code_2 = [true, true, false, false, false];
-        let switch_code_2 = SwitchCode::SwitchA;
+        let switch_code_2 = SwitchCode::Relay1;
         let switch_2 = Switch::new(&sys_code_2, switch_code_2);
 
         state.set_state(&switch_2, SwitchState::On);

@@ -29,23 +29,29 @@ impl Switch {
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum SwitchCode {
-    SwitchA,
-    SwitchB,
-    SwitchC,
-    SwitchD,
-    SwitchE,
+    Relay1,
+    Relay2,
+    Relay3,
+    Relay4,
+    Relay5,
+    Relay6,
+    Relay7,
+    Relay8,
 }
 
 impl SwitchCode {
     fn add_bits(&self, buf: &mut [u8]) {
         let idx = match self {
-            SwitchCode::SwitchA => 0,
-            SwitchCode::SwitchB => 1,
-            SwitchCode::SwitchC => 2,
-            SwitchCode::SwitchD => 3,
-            SwitchCode::SwitchE => 4,
+            SwitchCode::Relay1 => 0,
+            SwitchCode::Relay2 => 1,
+            SwitchCode::Relay3 => 2,
+            SwitchCode::Relay4 => 3,
+            SwitchCode::Relay5 => 4,
+            SwitchCode::Relay6 => 5,
+            SwitchCode::Relay7 => 6,
+            SwitchCode::Relay8 => 7,
         };
-        for i in 0..5 {
+        for i in 0..8 {
             if i == idx {
                 buf[i] = b'0';
             } else {
