@@ -1,5 +1,5 @@
 [package]
-name = "rcs-to-redis"
+name = "rm8-to-redis"
 version = "1.0.0-SNAPSHOT"
 authors = ["Bernd Vogt <bernd.vogt@sourcepit.org>"]
 

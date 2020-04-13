@@ -15,7 +15,7 @@ extern crate log;
 
 mod assert;
 mod gpio;
-mod rcs;
+mod rm8;
 mod redis_streams;
 
 use common_failures::prelude::*;
@@ -24,16 +24,16 @@ use caps::CapSet;
 use caps::Capability;
 use clap::App;
 use clap::Arg;
-use rcs::RemoteControl;
-use rcs::Switch;
-use rcs::SwitchCode::SwitchA;
-use rcs::SwitchCode::SwitchB;
-use rcs::SwitchCode::SwitchC;
-use rcs::SwitchCode::SwitchD;
-use rcs::SwitchCode::SwitchE;
-use rcs::SwitchState;
-use rcs::SwitchState::Off;
-use rcs::SwitchState::On;
+use rm8::RemoteControl;
+use rm8::Switch;
+use rm8::SwitchCode::SwitchA;
+use rm8::SwitchCode::SwitchB;
+use rm8::SwitchCode::SwitchC;
+use rm8::SwitchCode::SwitchD;
+use rm8::SwitchCode::SwitchE;
+use rm8::SwitchState;
+use rm8::SwitchState::Off;
+use rm8::SwitchState::On;
 use redis::Commands;
 use redis::Connection;
 use redis_streams::process_stream;
@@ -65,16 +65,27 @@ impl SwitchStates {
     }
 
     pub fn set_state(&mut self, switch: &Switch, state: SwitchState) {
-        for i in &mut self.states {
-            if i.0 == *switch {
-                i.1 = state;
-                break;
+        for entry in &mut self.states {
+            let existing_switch = &entry.0;
+            if existing_switch == switch {
+                entry.1 = state;
+                return;
             }
         }
         self.states.push((switch.clone(), state));
     }
 
-    pub fn iter(&self) -> std::slice::Iter<(rcs::Switch, rcs::SwitchState)> {
+    pub fn get_state(&self, switch: &Switch) -> Option<SwitchState> {
+        for entry in &self.states {
+            let existing_switch = &entry.0;
+            if existing_switch == switch {
+                return Some(entry.1);
+            }
+        }
+        None
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<(rm8::Switch, rm8::SwitchState)> {
         self.states.iter()
     }
 }
@@ -123,7 +134,7 @@ fn run() -> Result<()> {
                 .multiple(false)
                 .takes_value(true)
                 .required(false)
-                .default_value("rcs"),
+                .default_value("rm8"),
         )
         .arg(
             Arg::with_name(ARG_GPIO_PIN)
@@ -271,4 +282,46 @@ fn reduce(items: Vec<(Switch, SwitchState)>) -> Result<HashMap<Switch, SwitchSta
         result.insert(item.0, item.1);
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    // Note this useful idiom: importing names from outer (for mod tests) scope.
+    use super::rm8::SwitchCode;
+    use super::rm8::SwitchState;
+    use super::*;
+
+    #[test]
+    fn test_switch_states_set_state() {
+        let mut state = SwitchStates::new();
+        assert_eq!(0, state.states.len());
+
+        // test insert state of switch 1A
+        let sys_code = [true, false, false, false, false];
+        let switch_code = SwitchCode::SwitchA;
+        let switch = Switch::new(&sys_code, switch_code);
+
+        state.set_state(&switch, SwitchState::On);
+        assert_eq!(1, state.states.len());
+        assert_eq!(Some(SwitchState::On), state.get_state(&switch));
+
+        // test change state of switch 1A
+        let sys_code = [true, false, false, false, false];
+        let switch_code = SwitchCode::SwitchA;
+        let switch = Switch::new(&sys_code, switch_code);
+
+        state.set_state(&switch, SwitchState::Off);
+        assert_eq!(1, state.states.len());
+        assert_eq!(Some(SwitchState::Off), state.get_state(&switch));
+
+        // test insert state of another switch
+        let sys_code_2 = [true, true, false, false, false];
+        let switch_code_2 = SwitchCode::SwitchA;
+        let switch_2 = Switch::new(&sys_code_2, switch_code_2);
+
+        state.set_state(&switch_2, SwitchState::On);
+        assert_eq!(2, state.states.len());
+        assert_eq!(Some(SwitchState::Off), state.get_state(&switch));
+        assert_eq!(Some(SwitchState::On), state.get_state(&switch_2));
+    }
 }
