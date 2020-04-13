@@ -18,8 +18,6 @@
 		<cargo.common_failures.version>"=0.1.1"</cargo.common_failures.version>
 		<cargo.failure.version>"=0.1.6"</cargo.failure.version>
 		<cargo.libc.version>"=0.2.66"</cargo.libc.version>
-		<cargo.thread_priority.version>"=0.1.1"</cargo.thread_priority.version>
-		<cargo.caps.version>"=0.3.4"</cargo.caps.version>
 		<cargo.redis.version>"=0.15.1"</cargo.redis.version>
 		<cargo.serde.version>"=1.0.104"</cargo.serde.version>
 		<cargo.serde_json.version>"=1.0.45"</cargo.serde_json.version>

@@ -2,14 +2,12 @@
 extern crate clap;
 #[macro_use]
 extern crate common_failures;
-extern crate caps;
 #[macro_use]
 extern crate failure;
 extern crate libc;
 extern crate redis;
 extern crate serde;
 extern crate serde_json;
-extern crate thread_priority;
 #[macro_use]
 extern crate log;
 
@@ -20,35 +18,28 @@ mod rm8;
 
 use common_failures::prelude::*;
 
-use caps::CapSet;
-use caps::Capability;
 use clap::App;
 use clap::Arg;
 use redis::Commands;
 use redis::Connection;
 use redis_streams::process_stream;
 use redis_streams::EntryId;
+use rm8::Relay;
+use rm8::Relay::Relay1;
+use rm8::Relay::Relay2;
+use rm8::Relay::Relay3;
+use rm8::Relay::Relay4;
+use rm8::Relay::Relay5;
+use rm8::Relay::Relay6;
+use rm8::Relay::Relay7;
+use rm8::Relay::Relay8;
+use rm8::RelayState;
+use rm8::RelayState::Off;
+use rm8::RelayState::On;
 use rm8::RemoteControl;
-use rm8::Switch;
-use rm8::SwitchCode::Relay1;
-use rm8::SwitchCode::Relay2;
-use rm8::SwitchCode::Relay3;
-use rm8::SwitchCode::Relay4;
-use rm8::SwitchCode::Relay5;
-use rm8::SwitchCode::Relay6;
-use rm8::SwitchCode::Relay7;
-use rm8::SwitchCode::Relay8;
-use rm8::SwitchState;
-use rm8::SwitchState::Off;
-use rm8::SwitchState::On;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
-use thread_priority::set_thread_priority;
-use thread_priority::thread_native_id;
-use thread_priority::RealtimeThreadSchedulePolicy;
-use thread_priority::ThreadPriority;
-use thread_priority::ThreadSchedulePolicy;
 
 const ARG_REDIS_HOST: &str = "redis-host";
 const ARG_REDIS_PORT: &str = "redis-port";
@@ -59,7 +50,7 @@ const ARG_QUIET: &str = "quiet";
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 struct SwitchStates {
-    states: Vec<(Switch, SwitchState)>,
+    states: Vec<(Relay, RelayState)>,
 }
 
 impl SwitchStates {
@@ -67,28 +58,28 @@ impl SwitchStates {
         SwitchStates { states: Vec::new() }
     }
 
-    pub fn set_state(&mut self, switch: &Switch, state: SwitchState) {
+    pub fn set_state(&mut self, relay: &Relay, state: RelayState) {
         for entry in &mut self.states {
-            let existing_switch = &entry.0;
-            if existing_switch == switch {
+            let existing_relay = &entry.0;
+            if existing_relay == relay {
                 entry.1 = state;
                 return;
             }
         }
-        self.states.push((switch.clone(), state));
+        self.states.push((relay.clone(), state));
     }
 
-    pub fn get_state(&self, switch: &Switch) -> Option<SwitchState> {
+    pub fn get_state(&self, relay: &Relay) -> Option<RelayState> {
         for entry in &self.states {
-            let existing_switch = &entry.0;
-            if existing_switch == switch {
+            let existing_relay = &entry.0;
+            if existing_relay == relay {
                 return Some(entry.1);
             }
         }
         None
     }
 
-    pub fn iter(&self) -> std::slice::Iter<(rm8::Switch, rm8::SwitchState)> {
+    pub fn iter(&self) -> std::slice::Iter<(rm8::Relay, rm8::RelayState)> {
         self.states.iter()
     }
 }
@@ -164,17 +155,13 @@ fn run() -> Result<()> {
     let name = value_t!(args, ARG_NAME, String)?;
     let gpio_pin = value_t!(args, ARG_GPIO_PIN, usize)?;
 
-    // requires:
-    // sudo setcap cap_sys_nice=ep <file>
-    try_upgrade_thread_priority()?;
-
     let mut redis_connection =
         redis::Client::open(format!("redis://{}:{}", redis_host, redis_port))?.get_connection()?;
 
     let state_key = format!("{}_state", name);
 
     let result: Option<Vec<u8>> = redis_connection.get(&state_key)?;
-    let mut switch_states: SwitchStates = match result {
+    let mut relay_states: SwitchStates = match result {
         Some(result) => serde_json::from_slice(result.as_slice())?,
         None => SwitchStates::new(),
     };
@@ -183,25 +170,25 @@ fn run() -> Result<()> {
 
     let commit = |connection: &mut Connection,
                   initialized: bool,
-                  state: HashMap<Switch, SwitchState>|
+                  state: HashMap<Relay, RelayState>|
      -> Result<()> {
         if initialized {
-            for (switch, state) in state {
-                info!("Set {:?} {:?}", switch, state);
-                rc.send(&switch, state);
-                switch_states.set_state(&switch, state);
+            for (relay, state) in state {
+                info!("Set {:?} {:?}", relay, state);
+                rc.send(&relay, state);
+                relay_states.set_state(&relay, state);
             }
         } else {
-            for (switch, state) in state {
-                switch_states.set_state(&switch, state);
+            for (relay, state) in state {
+                relay_states.set_state(&relay, state);
             }
-            for (switch, state) in switch_states.iter() {
-                info!("Set {:?} {:?}", switch, state);
-                rc.send(switch, *state);
+            for (relay, state) in relay_states.iter() {
+                info!("Set {:?} {:?}", relay, state);
+                rc.send(relay, *state);
             }
         }
 
-        let json = serde_json::to_vec(&switch_states)?;
+        let json = serde_json::to_vec(&relay_states)?;
         connection.set(&state_key, json)?;
 
         Ok(())
@@ -212,49 +199,9 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-fn try_upgrade_thread_priority() -> Result<()> {
-    let has_cap_sys_nice = match caps::has_cap(None, CapSet::Permitted, Capability::CAP_SYS_NICE) {
-        Ok(v) => v,
-        Err(e) => return Err(format_err!("{}", e)),
-    };
-    if has_cap_sys_nice {
-        let thread_id = thread_native_id();
-        let res = set_thread_priority(
-            thread_id,
-            ThreadPriority::Max,
-            ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::Fifo),
-        );
-        match res {
-            Ok(_) => {}
-            Err(e) => return Err(format_err!("{:?}", e)),
-        }
-    };
-    Ok(())
-}
-
-fn map(_: EntryId, values: HashMap<String, String>) -> Result<Option<(Switch, SwitchState)>> {
-    let system_code = match values.get("system_code") {
-        Some(system_code) => {
-            match system_code.len() {
-                5 => (),
-                _ => return Ok(None), //TODO: log warning
-            };
-
-            let mut result = [false; 5];
-            for (i, c) in system_code.chars().enumerate() {
-                result[i] = match c {
-                    '0' => false,
-                    '1' => true,
-                    _ => return Ok(None), //TODO: log warning
-                };
-            }
-            result
-        }
-        None => return Ok(None), //TODO: log warning
-    };
-
-    let switch = match values.get("switch") {
-        Some(switch) => match switch.as_str() {
+fn map(_: EntryId, values: HashMap<String, String>) -> Result<Option<(Relay, RelayState)>> {
+    let relay = match values.get("relay") {
+        Some(relay) => match relay.as_str() {
             "1" => Relay1,
             "2" => Relay2,
             "3" => Relay3,
@@ -279,11 +226,11 @@ fn map(_: EntryId, values: HashMap<String, String>) -> Result<Option<(Switch, Sw
         None => return Ok(None), //TODO: log warning
     };
 
-    Ok(Some((Switch::new(&system_code, switch), state)))
+    Ok(Some((relay, state)))
 }
 
-fn reduce(items: Vec<(Switch, SwitchState)>) -> Result<HashMap<Switch, SwitchState>> {
-    let mut result: HashMap<Switch, SwitchState> = HashMap::new();
+fn reduce(items: Vec<(Relay, RelayState)>) -> Result<HashMap<Relay, RelayState>> {
+    let mut result: HashMap<Relay, RelayState> = HashMap::new();
     for item in items {
         result.insert(item.0, item.1);
     }
@@ -293,41 +240,35 @@ fn reduce(items: Vec<(Switch, SwitchState)>) -> Result<HashMap<Switch, SwitchSta
 #[cfg(test)]
 mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
-    use super::rm8::SwitchCode;
-    use super::rm8::SwitchState;
+    use super::rm8::Relay;
+    use super::rm8::RelayState;
     use super::*;
 
     #[test]
-    fn test_switch_states_set_state() {
+    fn test_relay_states_set_state() {
         let mut state = SwitchStates::new();
         assert_eq!(0, state.states.len());
 
-        // test insert state of switch 1A
-        let sys_code = [true, false, false, false, false];
-        let switch_code = SwitchCode::Relay1;
-        let switch = Switch::new(&sys_code, switch_code);
+        // test insert state of relay 1A
+        let relay = Relay::Relay1;
 
-        state.set_state(&switch, SwitchState::On);
+        state.set_state(&relay, RelayState::On);
         assert_eq!(1, state.states.len());
-        assert_eq!(Some(SwitchState::On), state.get_state(&switch));
+        assert_eq!(Some(RelayState::On), state.get_state(&relay));
 
-        // test change state of switch 1A
-        let sys_code = [true, false, false, false, false];
-        let switch_code = SwitchCode::Relay1;
-        let switch = Switch::new(&sys_code, switch_code);
+        // test change state of relay 1A
+        let relay = Relay::Relay1;
 
-        state.set_state(&switch, SwitchState::Off);
+        state.set_state(&relay, RelayState::Off);
         assert_eq!(1, state.states.len());
-        assert_eq!(Some(SwitchState::Off), state.get_state(&switch));
+        assert_eq!(Some(RelayState::Off), state.get_state(&relay));
 
-        // test insert state of another switch
-        let sys_code_2 = [true, true, false, false, false];
-        let switch_code_2 = SwitchCode::Relay1;
-        let switch_2 = Switch::new(&sys_code_2, switch_code_2);
+        // test insert state of another relay
+        let relay_2 = Relay::Relay2;
 
-        state.set_state(&switch_2, SwitchState::On);
+        state.set_state(&relay_2, RelayState::On);
         assert_eq!(2, state.states.len());
-        assert_eq!(Some(SwitchState::Off), state.get_state(&switch));
-        assert_eq!(Some(SwitchState::On), state.get_state(&switch_2));
+        assert_eq!(Some(RelayState::Off), state.get_state(&relay));
+        assert_eq!(Some(RelayState::On), state.get_state(&relay_2));
     }
 }
