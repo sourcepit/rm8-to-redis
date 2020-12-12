@@ -36,7 +36,7 @@ use rm8::Relay::Relay8;
 use rm8::RelayState;
 use rm8::RelayState::Off;
 use rm8::RelayState::On;
-use rm8::RemoteControl;
+use rm8::Rm8Control;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -44,18 +44,19 @@ use std::collections::HashMap;
 const ARG_REDIS_HOST: &str = "redis-host";
 const ARG_REDIS_PORT: &str = "redis-port";
 const ARG_NAME: &str = "name";
-const ARG_GPIO_PIN: &str = "gpio-pin";
+const ARG_GPIO_PINS: &str = "gpio-pins";
+const ARG_INVERT_OUTPUTS: &str = "invert-outputs";
 const ARG_VERBOSITY: &str = "verbosity";
 const ARG_QUIET: &str = "quiet";
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-struct SwitchStates {
+struct RelayStates {
     states: Vec<(Relay, RelayState)>,
 }
 
-impl SwitchStates {
-    pub fn new() -> SwitchStates {
-        SwitchStates { states: Vec::new() }
+impl RelayStates {
+    pub fn new() -> RelayStates {
+        RelayStates { states: Vec::new() }
     }
 
     pub fn set_state(&mut self, relay: &Relay, state: RelayState) {
@@ -131,12 +132,19 @@ fn run() -> Result<()> {
                 .default_value("rm8"),
         )
         .arg(
-            Arg::with_name(ARG_GPIO_PIN)
-                .long(ARG_GPIO_PIN)
+            Arg::with_name(ARG_GPIO_PINS)
+                .long(ARG_GPIO_PINS)
+                .multiple(true)
+                .takes_value(true)
+                .required(false),
+        )
+        .arg(
+            Arg::with_name(ARG_INVERT_OUTPUTS)
+                .long(ARG_INVERT_OUTPUTS)
                 .multiple(false)
                 .takes_value(true)
                 .required(false)
-                .default_value("17"),
+                .default_value("true"),
         )
         .get_matches();
 
@@ -153,7 +161,14 @@ fn run() -> Result<()> {
     let redis_host = value_t!(args, ARG_REDIS_HOST, String)?;
     let redis_port = value_t!(args, ARG_REDIS_PORT, usize)?;
     let name = value_t!(args, ARG_NAME, String)?;
-    let gpio_pin = value_t!(args, ARG_GPIO_PIN, usize)?;
+
+    let gpio_pins = match args.values_of(ARG_GPIO_PINS) {
+        Some(values) => values
+            .map(|i| i.parse::<usize>().unwrap())
+            .collect::<Vec<usize>>(),
+        None => vec![6, 13, 19, 26, 12, 16, 20, 21],
+    };
+    let invert_outputs = value_t!(args, ARG_INVERT_OUTPUTS, bool)?;
 
     let mut redis_connection =
         redis::Client::open(format!("redis://{}:{}", redis_host, redis_port))?.get_connection()?;
@@ -161,12 +176,23 @@ fn run() -> Result<()> {
     let state_key = format!("{}_state", name);
 
     let result: Option<Vec<u8>> = redis_connection.get(&state_key)?;
-    let mut relay_states: SwitchStates = match result {
+    let mut relay_states: RelayStates = match result {
         Some(result) => serde_json::from_slice(result.as_slice())?,
-        None => SwitchStates::new(),
+        None => {
+            let mut states = RelayStates::new();
+            states.set_state(&Relay::Relay1, RelayState::Off);
+            states.set_state(&Relay::Relay2, RelayState::Off);
+            states.set_state(&Relay::Relay3, RelayState::Off);
+            states.set_state(&Relay::Relay4, RelayState::Off);
+            states.set_state(&Relay::Relay5, RelayState::Off);
+            states.set_state(&Relay::Relay6, RelayState::Off);
+            states.set_state(&Relay::Relay7, RelayState::Off);
+            states.set_state(&Relay::Relay8, RelayState::Off);
+            states
+        }
     };
 
-    let mut rc = RemoteControl::open(gpio_pin)?;
+    let mut rc = Rm8Control::open(gpio_pins, invert_outputs)?;
 
     let commit = |connection: &mut Connection,
                   initialized: bool,
@@ -246,7 +272,7 @@ mod tests {
 
     #[test]
     fn test_relay_states_set_state() {
-        let mut state = SwitchStates::new();
+        let mut state = RelayStates::new();
         assert_eq!(0, state.states.len());
 
         // test insert state of relay 1A

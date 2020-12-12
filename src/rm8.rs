@@ -63,24 +63,56 @@ impl RelayState {
     }
 }
 
-pub struct RemoteControl<'a> {
+pub struct Rm8Control<'a> {
     gpio: Gpio<'a>,
-    pin: usize,
+    pins: Vec<usize>,
+    invert_outputs: bool,
 }
 
-impl<'a> RemoteControl<'a> {
-    pub fn open(pin: usize) -> Result<RemoteControl<'a>> {
+impl<'a> Rm8Control<'a> {
+    pub fn open(pins: Vec<usize>, invert_outputs: bool) -> Result<Rm8Control<'a>> {
         let mut gpio = Gpio::open()?;
-        gpio.set_pin_direction(pin, Out);
-        Ok(RemoteControl { gpio, pin })
+        for pin in &pins {
+            gpio.set_pin_direction(*pin, Out);
+        }
+        Ok(Rm8Control {
+            gpio,
+            pins,
+            invert_outputs,
+        })
     }
 
     pub fn send(&mut self, relay: &Relay, state: RelayState) {
-        // TODO
-        let value = match state {
-            RelayState::On => High,
-            RelayState::Off => Low,
+        let idx = match relay {
+            Relay::Relay1 => 0,
+            Relay::Relay2 => 1,
+            Relay::Relay3 => 2,
+            Relay::Relay4 => 3,
+            Relay::Relay5 => 4,
+            Relay::Relay6 => 5,
+            Relay::Relay7 => 6,
+            Relay::Relay8 => 7,
         };
-        self.gpio.set_pin_value(self.pin, value)
+
+        let pin: usize = *self.pins.get(idx).unwrap();
+
+        let value = match state {
+            RelayState::On => {
+                if self.invert_outputs {
+                    Low
+                } else {
+                    High
+                }
+            }
+            RelayState::Off => {
+                if self.invert_outputs {
+                    High
+                } else {
+                    Low
+                }
+            }
+        };
+
+        self.gpio.set_pin_value(pin, value)
     }
 }
