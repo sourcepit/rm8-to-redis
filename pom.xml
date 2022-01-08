@@ -14,14 +14,14 @@
 	<packaging>pom</packaging>
 
 	<properties>
-		<cargo.clap.version>"=2.33.0"</cargo.clap.version>
+		<cargo.clap.version>"=2.34.0"</cargo.clap.version>
 		<cargo.common_failures.version>"=0.1.1"</cargo.common_failures.version>
-		<cargo.failure.version>"=0.1.6"</cargo.failure.version>
-		<cargo.libc.version>"=0.2.66"</cargo.libc.version>
-		<cargo.redis.version>"=0.15.1"</cargo.redis.version>
-		<cargo.serde.version>"=1.0.104"</cargo.serde.version>
-		<cargo.serde_json.version>"=1.0.45"</cargo.serde_json.version>
-		<cargo.log.version>"=0.4.8"</cargo.log.version>
-		<cargo.stderrlog.version>"=0.4.3"</cargo.stderrlog.version>
+		<cargo.failure.version>"=0.1.8"</cargo.failure.version>
+		<cargo.libc.version>"=0.2.112"</cargo.libc.version>
+		<cargo.redis.version>"=0.21.4"</cargo.redis.version>
+		<cargo.serde.version>"=1.0.133"</cargo.serde.version>
+		<cargo.serde_json.version>"=1.0.74"</cargo.serde_json.version>
+		<cargo.log.version>"=0.4.14"</cargo.log.version>
+		<cargo.stderrlog.version>"=0.5.1"</cargo.stderrlog.version>
 	</properties>
 </project>
