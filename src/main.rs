@@ -70,16 +70,6 @@ impl RelayStates {
         self.states.push((relay.clone(), state));
     }
 
-    pub fn get_state(&self, relay: &Relay) -> Option<RelayState> {
-        for entry in &self.states {
-            let existing_relay = &entry.0;
-            if existing_relay == relay {
-                return Some(entry.1);
-            }
-        }
-        None
-    }
-
     pub fn iter(&self) -> std::slice::Iter<(rm8::Relay, rm8::RelayState)> {
         self.states.iter()
     }
@@ -280,21 +270,31 @@ mod tests {
 
         state.set_state(&relay, RelayState::On);
         assert_eq!(1, state.states.len());
-        assert_eq!(Some(RelayState::On), state.get_state(&relay));
+        assert_eq!(Some(RelayState::On), get_state(&state, &relay));
 
         // test change state of relay 1A
         let relay = Relay::Relay1;
 
         state.set_state(&relay, RelayState::Off);
         assert_eq!(1, state.states.len());
-        assert_eq!(Some(RelayState::Off), state.get_state(&relay));
+        assert_eq!(Some(RelayState::Off), get_state(&state, &relay));
 
         // test insert state of another relay
         let relay_2 = Relay::Relay2;
 
         state.set_state(&relay_2, RelayState::On);
         assert_eq!(2, state.states.len());
-        assert_eq!(Some(RelayState::Off), state.get_state(&relay));
-        assert_eq!(Some(RelayState::On), state.get_state(&relay_2));
+        assert_eq!(Some(RelayState::Off), get_state(&state, &relay));
+        assert_eq!(Some(RelayState::On), get_state(&state, &relay_2));
+    }
+
+    fn get_state(states: &RelayStates, relay: &Relay) -> Option<RelayState> {
+        for entry in &states.states {
+            let existing_relay = &entry.0;
+            if existing_relay == relay {
+                return Some(entry.1);
+            }
+        }
+        None
     }
 }

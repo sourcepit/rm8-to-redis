@@ -19,48 +19,10 @@ pub enum Relay {
     Relay8,
 }
 
-impl Relay {
-    fn add_bits(&self, buf: &mut [u8]) {
-        let idx = match self {
-            Relay::Relay1 => 0,
-            Relay::Relay2 => 1,
-            Relay::Relay3 => 2,
-            Relay::Relay4 => 3,
-            Relay::Relay5 => 4,
-            Relay::Relay6 => 5,
-            Relay::Relay7 => 6,
-            Relay::Relay8 => 7,
-        };
-        for i in 0..8 {
-            if i == idx {
-                buf[i] = b'0';
-            } else {
-                buf[i] = b'F';
-            }
-        }
-    }
-}
-
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum RelayState {
     On,
     Off,
-}
-
-impl RelayState {
-    fn add_bits(&self, buf: &mut [u8]) {
-        let idx = match self {
-            RelayState::On => 0,
-            RelayState::Off => 1,
-        };
-        for i in 0..2 {
-            if i == idx {
-                buf[i] = b'0';
-            } else {
-                buf[i] = b'F';
-            }
-        }
-    }
 }
 
 pub struct Rm8Control<'a> {
