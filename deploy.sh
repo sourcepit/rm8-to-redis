@@ -43,7 +43,7 @@ SERVICE="$(cat <<-EOF
 EOF
 )"
 
-scp "target/arm-unknown-linux-gnueabihf/release/$APP_FILE_NAME" $TARGET_HOST:/tmp/$APP_FILE_NAME
+scp "target/armv7-unknown-linux-gnueabihf/release/$APP_FILE_NAME" $TARGET_HOST:/tmp/$APP_FILE_NAME
 
 ssh $TARGET_HOST -T /bin/bash << EOF
 	#!/bin/bash
