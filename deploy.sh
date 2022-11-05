@@ -35,6 +35,7 @@ SERVICE="$(cat <<-EOF
 	[Service]
 	EnvironmentFile=$CONF_FILE
 	ExecStart=$APP_FILE \\\$ARGS
+	ExecStopPost=/opt/rm8/rm8ctl -vvv off
 	Restart=on-failure
 	RestartSec=1
 	
@@ -78,4 +79,3 @@ ssh $TARGET_HOST -T /bin/bash << EOF
 	systemctl start $SERVICE_NAME
 	journalctl -f -u $SERVICE_NAME -o cat
 EOF
-	
