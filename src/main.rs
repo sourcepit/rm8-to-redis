@@ -46,6 +46,7 @@ const ARG_REDIS_PORT: &str = "redis-port";
 const ARG_NAME: &str = "name";
 const ARG_GPIO_PINS: &str = "gpio-pins";
 const ARG_INVERT_OUTPUTS: &str = "invert-outputs";
+const ARG_ALL_OFF_ON_ERROR: &str = "all-off-on-error";
 const ARG_VERBOSITY: &str = "verbosity";
 const ARG_QUIET: &str = "quiet";
 
@@ -136,6 +137,14 @@ fn run() -> Result<()> {
                 .required(false)
                 .default_value("true"),
         )
+        .arg(
+            Arg::with_name(ARG_ALL_OFF_ON_ERROR)
+                .long(ARG_ALL_OFF_ON_ERROR)
+                .multiple(false)
+                .takes_value(true)
+                .required(false)
+                .default_value("true"),
+        )
         .get_matches();
 
     let verbosity = args.occurrences_of(ARG_VERBOSITY) as usize + 1;
@@ -159,6 +168,7 @@ fn run() -> Result<()> {
         None => vec![6, 13, 19, 26, 12, 16, 20, 21],
     };
     let invert_outputs = value_t!(args, ARG_INVERT_OUTPUTS, bool)?;
+    let all_off_on_error = value_t!(args, ARG_ALL_OFF_ON_ERROR, bool)?;
 
     let mut redis_connection =
         redis::Client::open(format!("redis://{}:{}", redis_host, redis_port))?.get_connection()?;
@@ -184,9 +194,9 @@ fn run() -> Result<()> {
 
     let mut rc = Rm8Control::open(gpio_pins, invert_outputs)?;
 
-    let commit = |connection: &mut Connection,
-                  initialized: bool,
-                  state: HashMap<Relay, RelayState>|
+    let mut commit = |connection: &mut Connection,
+                      initialized: bool,
+                      state: HashMap<Relay, RelayState>|
      -> Result<()> {
         if initialized {
             for (relay, state) in state {
@@ -210,7 +220,25 @@ fn run() -> Result<()> {
         Ok(())
     };
 
-    process_stream(name, redis_connection, map, reduce, commit)?;
+    if let Err(e) = process_stream(name, &mut redis_connection, map, reduce, &mut commit) {
+        if all_off_on_error {
+            let mut off_state: HashMap<Relay, RelayState> = HashMap::new();
+            off_state.insert(Relay::Relay1, RelayState::Off);
+            off_state.insert(Relay::Relay2, RelayState::Off);
+            off_state.insert(Relay::Relay3, RelayState::Off);
+            off_state.insert(Relay::Relay4, RelayState::Off);
+            off_state.insert(Relay::Relay5, RelayState::Off);
+            off_state.insert(Relay::Relay6, RelayState::Off);
+            off_state.insert(Relay::Relay7, RelayState::Off);
+            off_state.insert(Relay::Relay8, RelayState::Off);
+
+            warn!("Set all relays to off due to an unexpected error");
+            let _ = commit(&mut redis_connection, true, off_state);
+        }
+        Err(e)
+    } else {
+        Ok(())
+    }?;
 
     Ok(())
 }

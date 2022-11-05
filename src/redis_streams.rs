@@ -102,10 +102,10 @@ where
 
 pub fn process_stream<M, R, C, MappedItem, ReducedItem>(
     stream_name: String,
-    mut connection: Connection,
+    mut connection: &mut Connection,
     map: M,
     reduce: R,
-    mut commit: C,
+    commit: &mut C,
 ) -> Result<()>
 where
     M: (Fn(EntryId, HashMap<String, String>) -> Result<Option<MappedItem>>),
