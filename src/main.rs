@@ -47,6 +47,7 @@ const ARG_NAME: &str = "name";
 const ARG_GPIO_PINS: &str = "gpio-pins";
 const ARG_INVERT_OUTPUTS: &str = "invert-outputs";
 const ARG_ALL_OFF_ON_ERROR: &str = "all-off-on-error";
+const ARG_REMEMBER_LAST_STATE: &str = "remember-last-state";
 const ARG_VERBOSITY: &str = "verbosity";
 const ARG_QUIET: &str = "quiet";
 
@@ -145,6 +146,14 @@ fn run() -> Result<()> {
                 .required(false)
                 .default_value("true"),
         )
+        .arg(
+            Arg::with_name(ARG_REMEMBER_LAST_STATE)
+                .long(ARG_REMEMBER_LAST_STATE)
+                .multiple(false)
+                .takes_value(true)
+                .required(false)
+                .default_value("false"),
+        )
         .get_matches();
 
     let verbosity = args.occurrences_of(ARG_VERBOSITY) as usize + 1;
@@ -169,13 +178,17 @@ fn run() -> Result<()> {
     };
     let invert_outputs = value_t!(args, ARG_INVERT_OUTPUTS, bool)?;
     let all_off_on_error = value_t!(args, ARG_ALL_OFF_ON_ERROR, bool)?;
+    let remember_last_state = value_t!(args, ARG_REMEMBER_LAST_STATE, bool)?;
 
     let mut redis_connection =
         redis::Client::open(format!("redis://{}:{}", redis_host, redis_port))?.get_connection()?;
 
     let state_key = format!("{}_state", name);
 
-    let result: Option<Vec<u8>> = redis_connection.get(&state_key)?;
+    let result: Option<Vec<u8>> = match remember_last_state {
+        true => redis_connection.get(&state_key)?,
+        false => None,
+    };
     let mut relay_states: RelayStates = match result {
         Some(result) => serde_json::from_slice(result.as_slice())?,
         None => {
@@ -214,8 +227,10 @@ fn run() -> Result<()> {
             }
         }
 
-        let json = serde_json::to_vec(&relay_states)?;
-        connection.set(&state_key, json)?;
+        if remember_last_state {
+            let json = serde_json::to_vec(&relay_states)?;
+            connection.set(&state_key, json)?;
+        }
 
         Ok(())
     };
