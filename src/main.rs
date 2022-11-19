@@ -1,343 +1,148 @@
-#[macro_use]
-extern crate clap;
-#[macro_use]
-extern crate common_failures;
-#[macro_use]
-extern crate failure;
-extern crate libc;
-extern crate redis;
-extern crate serde;
-extern crate serde_json;
-#[macro_use]
-extern crate log;
-
-mod assert;
 mod gpio;
-mod redis_streams;
-mod rm8;
+mod redis_shim;
+mod rm8_ctl;
+mod rm8_types;
 
-use common_failures::prelude::*;
-
-use clap::App;
-use clap::Arg;
-use redis::Commands;
-use redis::Connection;
-use redis_streams::process_stream;
-use redis_streams::EntryId;
-use rm8::Relay;
-use rm8::Relay::Relay1;
-use rm8::Relay::Relay2;
-use rm8::Relay::Relay3;
-use rm8::Relay::Relay4;
-use rm8::Relay::Relay5;
-use rm8::Relay::Relay6;
-use rm8::Relay::Relay7;
-use rm8::Relay::Relay8;
-use rm8::RelayState;
-use rm8::RelayState::Off;
-use rm8::RelayState::On;
-use rm8::Rm8Control;
-use serde::Deserialize;
-use serde::Serialize;
 use std::collections::HashMap;
+use std::time::Duration;
+use std::time::Instant;
 
-const ARG_REDIS_HOST: &str = "redis-host";
-const ARG_REDIS_PORT: &str = "redis-port";
-const ARG_NAME: &str = "name";
-const ARG_GPIO_PINS: &str = "gpio-pins";
-const ARG_INVERT_OUTPUTS: &str = "invert-outputs";
-const ARG_ALL_OFF_ON_ERROR: &str = "all-off-on-error";
-const ARG_REMEMBER_LAST_STATE: &str = "remember-last-state";
-const ARG_VERBOSITY: &str = "verbosity";
-const ARG_QUIET: &str = "quiet";
+use anyhow::Result;
+use clap::Parser;
+use log::info;
+use log::warn;
+use redis_shim::dispatch_relay_states;
+use rm8_ctl::Rm8Control;
+use rm8_types::RelayId;
+use rm8_types::RelayId::*;
+use rm8_types::RelayState;
+use rm8_types::RelayState::Off;
+use std::cmp::Ordering::Greater;
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-struct RelayStates {
-    states: Vec<(Relay, RelayState)>,
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[arg(long, short = 'q', default_value_t = false, conflicts_with = "verbose")]
+    quiet: bool,
+    #[arg(long, short = 'v', action = clap::ArgAction::Count)]
+    verbose: u8,
+    #[arg(long, default_value_t = String::from("localhost"))]
+    redis_host: String,
+    #[arg(long, default_value_t = 6379)]
+    redis_port: usize,
+    #[arg(long, default_value_t = String::from("rm8"))]
+    redis_stream_name: String,
 }
 
-impl RelayStates {
-    pub fn new() -> RelayStates {
-        RelayStates { states: Vec::new() }
-    }
-
-    pub fn set_state(&mut self, relay: &Relay, state: RelayState) {
-        for entry in &mut self.states {
-            let existing_relay = &entry.0;
-            if existing_relay == relay {
-                entry.1 = state;
-                return;
-            }
-        }
-        self.states.push((relay.clone(), state));
-    }
-
-    pub fn iter(&self) -> std::slice::Iter<(rm8::Relay, rm8::RelayState)> {
-        self.states.iter()
-    }
-}
-
-quick_main!(run);
-
-fn run() -> Result<()> {
-    let args = App::new(crate_name!())
-        .version(crate_version!())
-        .author(crate_authors!())
-        .arg(
-            Arg::with_name(ARG_VERBOSITY)
-                .long(ARG_VERBOSITY)
-                .short("v")
-                .multiple(true)
-                .takes_value(false)
-                .required(false),
-        )
-        .arg(
-            Arg::with_name(ARG_QUIET)
-                .long(ARG_QUIET)
-                .short("q")
-                .multiple(false)
-                .takes_value(false)
-                .required(false),
-        )
-        .arg(
-            Arg::with_name(ARG_REDIS_HOST)
-                .long(ARG_REDIS_HOST)
-                .multiple(false)
-                .takes_value(true)
-                .required(false)
-                .default_value("localhost"),
-        )
-        .arg(
-            Arg::with_name(ARG_REDIS_PORT)
-                .long(ARG_REDIS_PORT)
-                .multiple(false)
-                .takes_value(true)
-                .required(false)
-                .default_value("6379"),
-        )
-        .arg(
-            Arg::with_name(ARG_NAME)
-                .long(ARG_NAME)
-                .multiple(false)
-                .takes_value(true)
-                .required(false)
-                .default_value("rm8"),
-        )
-        .arg(
-            Arg::with_name(ARG_GPIO_PINS)
-                .long(ARG_GPIO_PINS)
-                .multiple(true)
-                .takes_value(true)
-                .required(false),
-        )
-        .arg(
-            Arg::with_name(ARG_INVERT_OUTPUTS)
-                .long(ARG_INVERT_OUTPUTS)
-                .multiple(false)
-                .takes_value(true)
-                .required(false)
-                .default_value("true"),
-        )
-        .arg(
-            Arg::with_name(ARG_ALL_OFF_ON_ERROR)
-                .long(ARG_ALL_OFF_ON_ERROR)
-                .multiple(false)
-                .takes_value(true)
-                .required(false)
-                .default_value("true"),
-        )
-        .arg(
-            Arg::with_name(ARG_REMEMBER_LAST_STATE)
-                .long(ARG_REMEMBER_LAST_STATE)
-                .multiple(false)
-                .takes_value(true)
-                .required(false)
-                .default_value("false"),
-        )
-        .get_matches();
-
-    let verbosity = args.occurrences_of(ARG_VERBOSITY) as usize + 1;
-    let quiet = args.is_present(ARG_QUIET);
+fn main() -> Result<()> {
+    let cli = Cli::parse();
 
     stderrlog::new()
         .module(module_path!())
         .timestamp(stderrlog::Timestamp::Second)
-        .verbosity(verbosity)
-        .quiet(quiet)
+        .verbosity(usize::from(cli.verbose))
+        .quiet(cli.quiet)
         .init()?;
 
-    let redis_host = value_t!(args, ARG_REDIS_HOST, String)?;
-    let redis_port = value_t!(args, ARG_REDIS_PORT, usize)?;
-    let name = value_t!(args, ARG_NAME, String)?;
+    let mut redis = redis::Client::open(format!("redis://{}:{}", cli.redis_host, cli.redis_port))?
+        .get_connection()?;
 
-    let gpio_pins = match args.values_of(ARG_GPIO_PINS) {
-        Some(values) => values
-            .map(|i| i.parse::<usize>().unwrap())
-            .collect::<Vec<usize>>(),
-        None => vec![6, 13, 19, 26, 12, 16, 20, 21],
-    };
-    let invert_outputs = value_t!(args, ARG_INVERT_OUTPUTS, bool)?;
-    let all_off_on_error = value_t!(args, ARG_ALL_OFF_ON_ERROR, bool)?;
-    let remember_last_state = value_t!(args, ARG_REMEMBER_LAST_STATE, bool)?;
+    let stream_key = cli.redis_stream_name;
+    let last_entry_id_key = format!("{}_start", stream_key);
 
-    let mut redis_connection =
-        redis::Client::open(format!("redis://{}:{}", redis_host, redis_port))?.get_connection()?;
+    let block_rate_ms = Duration::from_secs(1).as_millis().try_into()?;
+    let burts_rate = Duration::from_secs(5);
 
-    let state_key = format!("{}_state", name);
+    let gpio_pins = vec![6, 13, 19, 26, 12, 16, 20, 21];
 
-    let result: Option<Vec<u8>> = match remember_last_state {
-        true => redis_connection.get(&state_key)?,
-        false => None,
-    };
-    let mut relay_states: RelayStates = match result {
-        Some(result) => serde_json::from_slice(result.as_slice())?,
-        None => {
-            let mut states = RelayStates::new();
-            states.set_state(&Relay::Relay1, RelayState::Off);
-            states.set_state(&Relay::Relay2, RelayState::Off);
-            states.set_state(&Relay::Relay3, RelayState::Off);
-            states.set_state(&Relay::Relay4, RelayState::Off);
-            states.set_state(&Relay::Relay5, RelayState::Off);
-            states.set_state(&Relay::Relay6, RelayState::Off);
-            states.set_state(&Relay::Relay7, RelayState::Off);
-            states.set_state(&Relay::Relay8, RelayState::Off);
-            states
+    let mut rm8_ctl = Rm8Control::open(gpio_pins, true)?;
+
+    let mut event_times = new_event_times_map();
+
+    rm8_ctl.set_all(Off);
+
+    let handle_relay_states = &mut |relay_states| {
+        if let Some(relay_states) = relay_states {
+            set_states(&mut rm8_ctl, &relay_states);
+            update_event_times(&mut event_times, &relay_states.into_keys().collect());
         }
-    };
-
-    let mut rc = Rm8Control::open(gpio_pins, invert_outputs)?;
-
-    let mut commit = |connection: &mut Connection,
-                      initialized: bool,
-                      state: HashMap<Relay, RelayState>|
-     -> Result<()> {
-        if initialized {
-            for (relay, state) in state {
-                info!("Set {:?} {:?}", relay, state);
-                rc.send(&relay, state);
-                relay_states.set_state(&relay, state);
-            }
-        } else {
-            for (relay, state) in state {
-                relay_states.set_state(&relay, state);
-            }
-            for (relay, state) in relay_states.iter() {
-                info!("Set {:?} {:?}", relay, state);
-                rc.send(relay, *state);
-            }
-        }
-
-        if remember_last_state {
-            let json = serde_json::to_vec(&relay_states)?;
-            connection.set(&state_key, json)?;
-        }
-
+        check_burst_rate_violations(&mut rm8_ctl, &mut event_times, &burts_rate);
         Ok(())
     };
 
-    if let Err(e) = process_stream(name, &mut redis_connection, map, reduce, &mut commit) {
-        if all_off_on_error {
-            let mut off_state: HashMap<Relay, RelayState> = HashMap::new();
-            off_state.insert(Relay::Relay1, RelayState::Off);
-            off_state.insert(Relay::Relay2, RelayState::Off);
-            off_state.insert(Relay::Relay3, RelayState::Off);
-            off_state.insert(Relay::Relay4, RelayState::Off);
-            off_state.insert(Relay::Relay5, RelayState::Off);
-            off_state.insert(Relay::Relay6, RelayState::Off);
-            off_state.insert(Relay::Relay7, RelayState::Off);
-            off_state.insert(Relay::Relay8, RelayState::Off);
-
-            warn!("Set all relays to off due to an unexpected error");
-            let _ = commit(&mut redis_connection, true, off_state);
-        }
-        Err(e)
-    } else {
-        Ok(())
-    }?;
+    if let Err(e) = dispatch_relay_states(
+        &mut redis,
+        &stream_key,
+        &last_entry_id_key,
+        block_rate_ms,
+        |convertion_error| {
+            warn!("{}", convertion_error);
+            None
+        },
+        handle_relay_states,
+    ) {
+        rm8_ctl.set_all(Off);
+        return Err(e.into());
+    }
 
     Ok(())
 }
 
-fn map(_: EntryId, values: HashMap<String, String>) -> Result<Option<(Relay, RelayState)>> {
-    let relay = match values.get("relay") {
-        Some(relay) => match relay.as_str() {
-            "1" => Relay1,
-            "2" => Relay2,
-            "3" => Relay3,
-            "4" => Relay4,
-            "5" => Relay5,
-            "6" => Relay6,
-            "7" => Relay7,
-            "8" => Relay8,
-            _ => return Ok(None), //TODO: log warning
-        },
-        None => return Ok(None), //TODO: log warning
-    };
-
-    let state = match values.get("state") {
-        Some(state) => {
-            match state.as_str() {
-                "On" => On,
-                "Off" => Off,
-                _ => return Ok(None), //TODO: log warning
-            }
-        }
-        None => return Ok(None), //TODO: log warning
-    };
-
-    Ok(Some((relay, state)))
+fn set_states(rm8_ctl: &mut Rm8Control, relay_states: &HashMap<RelayId, RelayState>) {
+    for (relay, state) in relay_states {
+        rm8_ctl.set(relay, state.to_owned());
+    }
 }
 
-fn reduce(items: Vec<(Relay, RelayState)>) -> Result<HashMap<Relay, RelayState>> {
-    let mut result: HashMap<Relay, RelayState> = HashMap::new();
-    for item in items {
-        result.insert(item.0, item.1);
+fn update_event_times(event_times: &mut HashMap<RelayId, Instant>, event_triggers: &Vec<RelayId>) {
+    let now = Instant::now();
+    for relay in event_triggers {
+        event_times.insert(relay.to_owned(), now);
     }
-    Ok(result)
 }
 
-#[cfg(test)]
-mod tests {
-    // Note this useful idiom: importing names from outer (for mod tests) scope.
-    use super::rm8::Relay;
-    use super::rm8::RelayState;
-    use super::*;
+fn check_burst_rate_violations(
+    rm8_ctl: &mut Rm8Control,
+    event_times: &mut HashMap<RelayId, Instant>,
+    burts_rate: &Duration,
+) {
+    let now = Instant::now();
 
-    #[test]
-    fn test_relay_states_set_state() {
-        let mut state = RelayStates::new();
-        assert_eq!(0, state.states.len());
+    let mut bursted = Vec::<RelayId>::new();
 
-        // test insert state of relay 1A
-        let relay = Relay::Relay1;
+    for (relay_id, event_time) in event_times.iter() {
+        let relay_id = relay_id.to_owned();
+        let event_time = event_time.to_owned();
 
-        state.set_state(&relay, RelayState::On);
-        assert_eq!(1, state.states.len());
-        assert_eq!(Some(RelayState::On), get_state(&state, &relay));
-
-        // test change state of relay 1A
-        let relay = Relay::Relay1;
-
-        state.set_state(&relay, RelayState::Off);
-        assert_eq!(1, state.states.len());
-        assert_eq!(Some(RelayState::Off), get_state(&state, &relay));
-
-        // test insert state of another relay
-        let relay_2 = Relay::Relay2;
-
-        state.set_state(&relay_2, RelayState::On);
-        assert_eq!(2, state.states.len());
-        assert_eq!(Some(RelayState::Off), get_state(&state, &relay));
-        assert_eq!(Some(RelayState::On), get_state(&state, &relay_2));
-    }
-
-    fn get_state(states: &RelayStates, relay: &Relay) -> Option<RelayState> {
-        for entry in &states.states {
-            let existing_relay = &entry.0;
-            if existing_relay == relay {
-                return Some(entry.1);
-            }
+        let duration_since = now.duration_since(event_time);
+        if let Greater = duration_since.cmp(burts_rate) {
+            bursted.push(relay_id);
         }
-        None
     }
+
+    for relay_id in bursted.iter() {
+        warn!(
+            "Set relay '{:?}' to 'Off' due to burst rate violation",
+            relay_id
+        );
+        rm8_ctl.set(relay_id, Off);
+    }
+
+    for relay_id in bursted {
+        event_times.insert(relay_id, now);
+    }
+}
+
+fn new_event_times_map() -> HashMap<RelayId, Instant> {
+    let mut event_times = HashMap::<RelayId, Instant>::new();
+    let now = Instant::now();
+    event_times.insert(Relay1, now);
+    event_times.insert(Relay2, now);
+    event_times.insert(Relay3, now);
+    event_times.insert(Relay4, now);
+    event_times.insert(Relay5, now);
+    event_times.insert(Relay6, now);
+    event_times.insert(Relay7, now);
+    event_times.insert(Relay8, now);
+    event_times
 }

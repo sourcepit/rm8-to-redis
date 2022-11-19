@@ -1,5 +1,3 @@
-use common_failures::prelude::*;
-
 use libc::mmap;
 use libc::munmap;
 use libc::MAP_SHARED;
@@ -33,7 +31,7 @@ pub struct Gpio<'a> {
 }
 
 impl<'a> Gpio<'a> {
-    pub fn open() -> Result<Gpio<'a>> {
+    pub fn open() -> Result<Gpio<'a>, std::io::Error> {
         let gpiomem_file = OpenOptions::new()
             .read(true)
             .write(true)

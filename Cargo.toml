@@ -1,18 +1,17 @@
 [package]
 name = "rm8-to-redis"
-version = "1.0.0-SNAPSHOT"
+version = "2.0.0-SNAPSHOT"
+edition = "2021"
 authors = ["Bernd Vogt <bernd.vogt@sourcepit.org>"]
 
 [profile.release]
 debug = 1
 
 [dependencies]
-clap = "=2.34.0"
-common_failures = "=0.1.1"
-failure = "=0.1.8"
-libc = "=0.2.112"
-redis = "=0.21.4"
-serde = { version = "=1.0.133", features = ["derive"] }
-serde_json = "=1.0.74"
-log = "=0.4.14"
-stderrlog = "=0.5.1"
+anyhow = { version = "=1.0.66", features = ["backtrace"] }
+clap = { version = "=4.0.23", features = ["derive"] }
+libc = "=0.2.137"
+log = "=0.4.17"
+redis = "=0.22.1"
+stderrlog = "=0.5.4"
+thiserror = "=1.0.37"

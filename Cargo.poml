@@ -1,18 +1,17 @@
 [package]
 name = "${cargo.package.name}"
 version = "${cargo.package.version}"
+edition = "2021"
 authors = ["Bernd Vogt <bernd.vogt@sourcepit.org>"]
 
 [profile.release]
 debug = ${cargo.profile.release.debug}
 
 [dependencies]
-clap = ${cargo.clap.version}
-common_failures = ${cargo.common_failures.version}
-failure = ${cargo.failure.version}
+anyhow = { version = ${cargo.anyhow.version}, features = ["backtrace"] }
+clap = { version = ${cargo.clap.version}, features = ["derive"] }
 libc = ${cargo.libc.version}
-redis = ${cargo.redis.version}
-serde = { version = ${cargo.serde.version}, features = ["derive"] }
-serde_json = ${cargo.serde_json.version}
 log = ${cargo.log.version}
+redis = ${cargo.redis.version}
 stderrlog = ${cargo.stderrlog.version}
+thiserror = ${cargo.thiserror.version}
