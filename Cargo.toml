@@ -1,6 +1,6 @@
 [package]
 name = "rm8-to-redis"
-version = "1.0.0-SNAPSHOT"
+version = "1.1.0-SNAPSHOT"
 authors = ["Bernd Vogt <bernd.vogt@sourcepit.org>"]
 
 [profile.release]
